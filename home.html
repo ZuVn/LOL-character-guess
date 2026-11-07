@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LOL Character Guess</title>
+<style>
+:root{--bg:#14161c;--card:#1f232c;--fg:#e8e8ea;--mute:#8a8f9c;--ok:#2e9e5b;--part:#c9a227;--bad:#b23b3b;--acc:#5b8def;--line:#e8e8ea66}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
+main{max-width:900px;margin:auto;padding:16px}
+h1{text-align:center;margin:8px 0 16px}
+input,button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #333;background:var(--card);color:var(--fg)}
+button{cursor:pointer}
+.bar{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:10px 0}
+.clue{background:var(--card);border-radius:12px;padding:16px;text-align:center;margin:12px 0}
+.grid{overflow-x:auto}
+table{border-collapse:separate;border-spacing:4px;margin:auto}
+th{color:var(--mute);font-weight:500;font-size:.85em}
+td{width:56px;height:56px;min-width:56px;padding:2px;text-align:center;border-radius:6px;font-size:.7em;line-height:1.15;overflow-wrap:anywhere;background:var(--card);border:2px solid var(--line)}
+td.chc{padding:0;background:none;border:0}
+.ok{background:var(--ok)!important}.part{background:var(--part)!important}.bad{background:var(--bad)!important}
+.win{background:var(--ok);border-radius:12px;padding:16px;text-align:center;margin:12px 0}
+.mute{color:var(--mute);font-size:.9em;text-align:center;margin:4px 0}
+.ac{position:relative;flex:1;min-width:200px;max-width:400px}
+.ac input{width:100%}
+#sug{position:absolute;left:0;right:0;top:100%;z-index:5;background:var(--card);border-radius:8px;overflow:hidden}
+#sug button{display:flex;gap:8px;align-items:center;width:100%;border:0;border-radius:0;text-align:left}
+#sug button:hover,#sug button:focus{background:var(--acc)}
+.ic{width:28px;height:28px;border-radius:4px;object-fit:cover;vertical-align:middle}
+.ch{width:56px;height:56px;border-radius:6px;display:block;margin:auto;border:2px solid var(--line)}
+</style>
+</head>
+<body>
+<main>
+<h1>LOL Character Guess</h1>
+<div class="bar">
+  <input type="date" id="date"> <button id="today">Today</button> <button id="rand">🎲 Random</button> <button id="giveup">Give up</button>
+</div>
+<p class="mute" id="info"></p>
+<div class="clue">Guess the character — each guess compares every attribute.</div>
+<form class="bar" id="form">
+  <div class="ac"><input id="guess" placeholder="Type a name..." autocomplete="off"><div id="sug"></div></div>
+  <button>Guess</button>
+</form>
+<div id="result"></div>
+<div id="guesses" class="grid"></div>
+</main>
+<script src="data.js"></script>
+<script>
+const D = window.DATA.filter(c => c.attrs);
+const SQ = { ok: "🟩", part: "🟨", bad: "🟥" };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, ch => `&#${ch.charCodeAt(0)};`);
+const norm = s => s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/đ/g, "d").trim();
+const today = () => new Date().toLocaleDateString("sv"); // YYYY-MM-DD, local time
+const isDay = s => !s.startsWith("r");
+const hash = s => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.codePointAt(0), 16777619); return h >>> 0; };
+const ls = {
+  get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const answerFor = seed => D[hash("classic|" + seed) % D.length];
+const ic = c => c.icon ? `<img class="ic" src="${esc(c.icon)}" alt="">` : "";
+
+let st;
+
+function newGame(seed) {
+  st = { seed, ans: answerFor(seed), guesses: [], done: false, won: false };
+  $("date").value = isDay(seed) ? seed : "";
+  $("guess").value = ""; $("sug").innerHTML = "";
+  render();
+}
+
+
+function finish(won) {
+  st.done = true; st.won = won;
+  ls.set("wins:classic", (ls.get("wins:classic") || 0) + won);
+  ls.set("streak:classic", won ? (ls.get("streak:classic") || 0) + 1 : 0);
+}
+
+function guess(name) {
+  const c = D.find(x => norm(x.name) === norm(name));
+  if (!c || st.done || st.guesses.includes(c)) return;
+  st.guesses.unshift(c);
+  if (c === st.ans) finish(true);
+  render();
+}
+
+function cmp(g, a) {
+  if (typeof a === "number") return g === a ? ["ok", g] : ["bad", g + (g < a ? " ↑" : " ↓")];
+  const G = [].concat(g ?? []), A = [].concat(a ?? []);
+  const same = G.length === A.length && G.every(x => A.includes(x));
+  return [same ? "ok" : G.some(x => A.includes(x)) ? "part" : "bad", G.join(", ")];
+}
+
+function shareText() {
+  const keys = Object.keys(st.ans.attrs);
+  const rows = [...st.guesses].reverse().map(g => keys.map(k => SQ[cmp(g.attrs[k], st.ans.attrs[k])[0]]).join(""));
+  return `LOL Character Guess · ${isDay(st.seed) ? st.seed : "random"} · ${st.won ? st.guesses.length + (st.guesses.length > 1 ? " guesses" : " guess") : "gave up"}\n` + rows.join("\n");
+}
+
+function render() {
+  const n = st.guesses.length;
+  $("info").textContent = `${isDay(st.seed) ? "Puzzle for " + st.seed : "Random game"} · Guesses: ${n} · Wins: ${ls.get("wins:classic") || 0} · Streak: ${ls.get("streak:classic") || 0}`;
+  $("form").hidden = st.done;
+  $("giveup").hidden = st.done;
+  $("result").innerHTML = st.done ? `<div class="${st.won ? "win" : "clue bad"}">
+      ${st.won ? "🎉 Correct" : "The answer was"}: ${ic(st.ans)} <b>${esc(st.ans.name)}</b>${st.won ? ` in ${n} ${n > 1 ? "guesses" : "guess"}` : ""}
+      <div class="bar"><button id="share">📋 Share result</button><button id="next">🎲 New game</button></div></div>` : "";
+  const keys = Object.keys(st.ans.attrs);
+  $("guesses").innerHTML = n ? `<table><tr><th>Champion</th>${keys.map(k => `<th>${esc(k)}</th>`).join("")}</tr>` +
+    st.guesses.map(g => `<tr><td class="chc">${g.icon ? `<img class="ch" src="${esc(g.icon)}" alt="${esc(g.name)}" title="${esc(g.name)}">` : esc(g.name)}</td>` +
+      keys.map(k => { const [cls, txt] = cmp(g.attrs[k], st.ans.attrs[k]); return `<td class="${cls}">${esc(txt)}</td>`; }).join("") + "</tr>").join("") + "</table>" : "";
+}
+
+function suggest() {
+  const q = norm($("guess").value);
+  const list = q ? D.filter(c => !st.guesses.includes(c) && norm(c.name).startsWith(q))
+    .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 5) : [];
+  $("sug").innerHTML = list.map(c => `<button type="button" data-n="${esc(c.name)}">${ic(c)}${esc(c.name)}</button>`).join("");
+}
+
+$("guess").oninput = suggest;
+$("sug").onclick = e => { const b = e.target.closest("button"); if (b) { guess(b.dataset.n); $("guess").value = ""; suggest(); $("guess").focus(); } };
+$("form").onsubmit = e => {
+  e.preventDefault();
+  const first = $("sug").querySelector("button"); // Enter picks the first suggestion
+  guess(first ? first.dataset.n : $("guess").value);
+  $("guess").value = ""; suggest(); $("guess").focus();
+};
+$("result").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "next") newGame("r" + Math.random());
+  if (b.id === "share") {
+    const txt = shareText();
+    navigator.clipboard?.writeText(txt).then(() => b.textContent = "✓ Copied", () => prompt("Copy result:", txt)) ?? prompt("Copy result:", txt);
+  }
+};
+$("date").onchange = e => { const v = e.target.value; if (v && v <= today()) newGame(v); else e.target.value = st.seed; };
+$("today").onclick = () => newGame(today());
+$("rand").onclick = () => newGame("r" + Math.random());
+$("giveup").onclick = () => { if (!st.done) { finish(false); render(); } };
+
+$("date").max = today();
+newGame(today());
+</script>
+</body>
+</html>
