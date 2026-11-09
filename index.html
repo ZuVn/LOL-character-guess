@@ -19,7 +19,14 @@ table{border-collapse:separate;border-spacing:4px;margin:auto}
 th{color:var(--mute);font-weight:500;font-size:.85em}
 td{width:56px;height:56px;min-width:56px;padding:2px;text-align:center;border-radius:6px;font-size:.7em;line-height:1.15;overflow-wrap:anywhere;background:var(--card);border:2px solid var(--line)}
 td.chc{padding:0;background:none;border:0}
-.ok{background:var(--ok)!important}.part{background:var(--part)!important}.bad{background:var(--bad)!important}
+.ok{background:var(--ok)}.part{background:var(--part)}.bad{background:var(--bad)}
+/* Face-down until the card is edge-on (.25s), then the real color and text show. Timing mirrored in guess(). */
+.flip{animation:flip .5s linear both,reveal .25s step-end both;animation-delay:calc(var(--i)*.25s)}
+.pop{animation:pop .25s ease-out both}
+@keyframes flip{from{transform:perspective(200px) rotateY(0)}50%{transform:perspective(200px) rotateY(90deg)}to{transform:perspective(200px) rotateY(0)}}
+@keyframes reveal{from{background:var(--card);color:transparent}}
+@keyframes pop{from{transform:scale(.3);opacity:0}}
+@media (prefers-reduced-motion:reduce){.flip,.pop{animation:none}}
 .win{background:var(--ok);border-radius:12px;padding:16px;text-align:center;margin:12px 0}
 .mute{color:var(--mute);font-size:.9em;text-align:center;margin:4px 0}
 .ac{position:relative;flex:1;min-width:200px;max-width:400px}
@@ -83,8 +90,12 @@ function guess(name) {
   const c = D.find(x => norm(x.name) === norm(name));
   if (!c || st.done || st.guesses.includes(c)) return;
   st.guesses.unshift(c);
-  if (c === st.ans) finish(true);
-  render();
+  render(true); // before finish(), so the banner and win count don't spoil the flip
+  if (c === st.ans) {
+    finish(true);
+    const g = st, ms = matchMedia("(prefers-reduced-motion:reduce)").matches ? 0 : Object.keys(c.attrs).length * 250 + 500;
+    setTimeout(() => st === g && render(), ms);
+  }
 }
 
 function cmp(g, a) {
@@ -100,7 +111,7 @@ function shareText() {
   return `LOL Character Guess · ${isDay(st.seed) ? st.seed : "random"} · ${st.won ? st.guesses.length + (st.guesses.length > 1 ? " guesses" : " guess") : "gave up"}\n` + rows.join("\n");
 }
 
-function render() {
+function render(flip) {
   const n = st.guesses.length;
   $("info").textContent = `${isDay(st.seed) ? "Puzzle for " + st.seed : "Random game"} · Guesses: ${n} · Wins: ${ls.get("wins:classic") || 0} · Streak: ${ls.get("streak:classic") || 0}`;
   $("form").hidden = st.done;
@@ -110,8 +121,8 @@ function render() {
       <div class="bar"><button id="share">📋 Share result</button><button id="next">🎲 New game</button></div></div>` : "";
   const keys = Object.keys(st.ans.attrs);
   $("guesses").innerHTML = n ? `<table><tr><th>Champion</th>${keys.map(k => `<th>${esc(k)}</th>`).join("")}</tr>` +
-    st.guesses.map(g => `<tr><td class="chc">${g.icon ? `<img class="ch" src="${esc(g.icon)}" alt="${esc(g.name)}" title="${esc(g.name)}">` : esc(g.name)}</td>` +
-      keys.map(k => { const [cls, txt] = cmp(g.attrs[k], st.ans.attrs[k]); return `<td class="${cls}">${esc(txt)}</td>`; }).join("") + "</tr>").join("") + "</table>" : "";
+    st.guesses.map((g, r) => `<tr><td class="chc${flip && !r ? " pop" : ""}">${g.icon ? `<img class="ch" src="${esc(g.icon)}" alt="${esc(g.name)}" title="${esc(g.name)}">` : esc(g.name)}</td>` +
+      keys.map((k, i) => { const [cls, txt] = cmp(g.attrs[k], st.ans.attrs[k]); return `<td class="${cls}${flip && !r ? ` flip" style="--i:${i + 1}` : ""}">${esc(txt)}</td>`; }).join("") + "</tr>").join("") + "</table>" : "";
 }
 
 function suggest() {
